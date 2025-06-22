@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ビジュアルスパン - 記憶力チャレンジゲーム</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #1a1a2e;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            text-align: center;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: #4fbdba;
+        }
+
+        .level-info {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: #7ec8e3;
+        }
+
+        .high-score {
+            font-size: 0.9rem;
+            color: #ffd700;
+            margin-bottom: 1.5rem;
+        }
+
+        .game-grid {
+            display: grid;
+            gap: 2px;
+            width: min(90vw, 400px);
+            height: min(90vw, 400px);
+            margin: 0 auto 2rem;
+            background-color: #0f3460;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        .cell {
+            background-color: #16213e;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cell:hover:not(.disabled) {
+            background-color: #1e3a5f;
+        }
+
+        .cell:focus {
+            outline: 3px solid #4fbdba;
+            outline-offset: -3px;
+        }
+
+        .cell.active {
+            background-color: #ffeb3b !important;
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(255, 235, 59, 0.8);
+        }
+
+        .cell.clicked {
+            background-color: #4fbdba !important;
+            transform: scale(0.95);
+        }
+
+        .cell.disabled {
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .message {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            min-height: 2rem;
+        }
+
+        .message.success {
+            color: #4caf50;
+        }
+
+        .message.error {
+            color: #f44336;
+        }
+
+        .restart-btn {
+            background-color: #4fbdba;
+            color: #1a1a2e;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: none;
+        }
+
+        .restart-btn:hover {
+            background-color: #7ec8e3;
+            transform: scale(1.05);
+        }
+
+        .restart-btn.show {
+            display: inline-block;
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+            .level-info {
+                font-size: 1rem;
+            }
+            .message {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ビジュアルスパン</h1>
+        <div class="high-score" id="highScore">最高レベル: 0</div>
+        <div class="level-info" id="levelInfo">レベル 1</div>
+        <div class="message" id="message"></div>
+        <div class="game-grid" id="gameGrid"></div>
+        <button class="restart-btn" id="restartBtn">Restart</button>
+    </div>
+
+    <audio id="successSound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRlQBAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YTAAAACAP4A/gD+AP4A/gD+AP4A/gD8AAAAAAAAAAIA/gD+AP4A/gD+AP4A/gD+AP4A/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/gD+AP4A/gD+AP4A/gD8AAAAAAAAAAIA/gD+AP4A/gD+AP4A/gD8=" type="audio/wav">
+    </audio>
+    <audio id="failSound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRlQBAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YTAAAAAAAAAAAIA/AAAAAAAAAACAP4A/AAAAAAAAAACAP4A/gD8AAAAAAAAAAIA/gD+AP4A/AAAAAAAAAACAP4A/gD+AP4A/AAAAAAAAAACAP4A/gD+AP4A/gD8AAAAAAAAAAIA/gD+AP4A/gD+AP4A/AAAAAAAAAA==" type="audio/wav">
+    </audio>
+
+    <script type="module">
+        // ゲーム状態管理
+        const gameState = {
+            currentLevel: 1,
+            gridSize: 3,
+            sequence: [],
+            userInput: [],
+            isShowingSequence: false,
+            sequenceSpeed: 1000,
+            highScore: 0
+        };
+
+        // DOM要素
+        const elements = {
+            gameGrid: document.getElementById('gameGrid'),
+            levelInfo: document.getElementById('levelInfo'),
+            message: document.getElementById('message'),
+            restartBtn: document.getElementById('restartBtn'),
+            highScore: document.getElementById('highScore'),
+            successSound: document.getElementById('successSound'),
+            failSound: document.getElementById('failSound')
+        };
+
+        // ハイスコアの読み込みと保存
+        function loadHighScore() {
+            const saved = localStorage.getItem('visualSpanHighScore');
+            if (saved) {
+                gameState.highScore = parseInt(saved);
+                elements.highScore.textContent = `最高レベル: ${gameState.highScore}`;
+            }
+        }
+
+        function saveHighScore() {
+            if (gameState.currentLevel > gameState.highScore) {
+                gameState.highScore = gameState.currentLevel - 1;
+                localStorage.setItem('visualSpanHighScore', gameState.highScore);
+                elements.highScore.textContent = `最高レベル: ${gameState.highScore}`;
+            }
+        }
+
+        // グリッドの作成
+        function createGrid() {
+            const { gridSize } = gameState;
+            elements.gameGrid.innerHTML = '';
+            elements.gameGrid.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+            
+            for (let i = 0; i < gridSize * gridSize; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.index = i;
+                cell.tabIndex = 0;
+                cell.addEventListener('click', handleCellClick);
+                cell.addEventListener('keydown', handleCellKeydown);
+                elements.gameGrid.appendChild(cell);
+            }
+        }
+
+        // セルのクリック処理
+        function handleCellClick(e) {
+            if (gameState.isShowingSequence) return;
+            
+            const index = parseInt(e.target.dataset.index);
+            handleUserInput(index, e.target);
+        }
+
+        // キーボード操作
+        function handleCellKeydown(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleCellClick(e);
+            }
+        }
+
+        // ユーザー入力処理
+        function handleUserInput(index, cellElement) {
+            gameState.userInput.push(index);
+            
+            // クリックアニメーション
+            cellElement.classList.add('clicked');
+            setTimeout(() => cellElement.classList.remove('clicked'), 200);
+            
+            // 入力が完了したら判定
+            if (gameState.userInput.length === gameState.sequence.length) {
+                checkSequence();
+            }
+        }
+
+        // シーケンスの生成
+        function generateSequence() {
+            const cellCount = gameState.gridSize * gameState.gridSize;
+            gameState.sequence = [];
+            
+            for (let i = 0; i < gameState.currentLevel; i++) {
+                gameState.sequence.push(Math.floor(Math.random() * cellCount));
+            }
+        }
+
+        // シーケンスの表示
+        async function showSequence() {
+            gameState.isShowingSequence = true;
+            disableCells(true);
+            
+            elements.message.textContent = '順番を覚えてください';
+            elements.message.className = 'message';
+            
+            await sleep(1000);
+            
+            for (let i = 0; i < gameState.sequence.length; i++) {
+                const cellIndex = gameState.sequence[i];
+                const cell = elements.gameGrid.children[cellIndex];
+                
+                cell.classList.add('active');
+                await sleep(600);
+                cell.classList.remove('active');
+                await sleep(gameState.sequenceSpeed - 600);
+            }
+            
+            elements.message.textContent = '同じ順番でクリックしてください';
+            gameState.isShowingSequence = false;
+            disableCells(false);
+            gameState.userInput = [];
+        }
+
+        // シーケンスのチェック
+        function checkSequence() {
+            const isCorrect = gameState.sequence.every((val, index) => 
+                val === gameState.userInput[index]
+            );
+            
+            if (isCorrect) {
+                elements.successSound.play();
+                elements.message.textContent = 'Correct!';
+                elements.message.className = 'message success';
+                
+                setTimeout(() => {
+                    nextLevel();
+                }, 500);
+            } else {
+                elements.failSound.play();
+                saveHighScore();
+                elements.message.textContent = `Game Over! あなたの最高レベル: ${gameState.currentLevel}`;
+                elements.message.className = 'message error';
+                elements.restartBtn.classList.add('show');
+                disableCells(true);
+            }
+        }
+
+        // 次のレベルへ
+        function nextLevel() {
+            gameState.currentLevel++;
+            elements.levelInfo.textContent = `レベル ${gameState.currentLevel}`;
+            
+            // レベル4で4x4グリッドに拡大
+            if (gameState.currentLevel === 4 && gameState.gridSize === 3) {
+                gameState.gridSize = 4;
+                createGrid();
+            }
+            
+            // スピードアップ
+            if (gameState.currentLevel > 3) {
+                gameState.sequenceSpeed = Math.max(400, gameState.sequenceSpeed - 100);
+            }
+            
+            startRound();
+        }
+
+        // ラウンド開始
+        function startRound() {
+            generateSequence();
+            showSequence();
+        }
+
+        // セルの有効/無効切り替え
+        function disableCells(disabled) {
+            const cells = elements.gameGrid.children;
+            for (let cell of cells) {
+                if (disabled) {
+                    cell.classList.add('disabled');
+                } else {
+                    cell.classList.remove('disabled');
+                }
+            }
+        }
+
+        // スリープ関数
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // ゲーム初期化
+        function initGame() {
+            gameState.currentLevel = 1;
+            gameState.gridSize = 3;
+            gameState.sequence = [];
+            gameState.userInput = [];
+            gameState.isShowingSequence = false;
+            gameState.sequenceSpeed = 1000;
+            
+            elements.levelInfo.textContent = 'レベル 1';
+            elements.message.textContent = '';
+            elements.message.className = 'message';
+            elements.restartBtn.classList.remove('show');
+            
+            loadHighScore();
+            createGrid();
+            startRound();
+        }
+
+        // リスタートボタン
+        elements.restartBtn.addEventListener('click', initGame);
+
+        // ゲーム開始
+        document.addEventListener('DOMContentLoaded', initGame);
+    </script>
+</body>
+</html>
+
+<!-- MIT License -->
